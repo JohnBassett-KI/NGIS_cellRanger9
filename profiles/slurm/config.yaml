@@ -1,0 +1,62 @@
+# ── profile/config.yaml ────────────────────────────────────────────────────────
+jobs: 100
+executor: cluster-generic
+
+###############################################################################
+# Submit command (asynchronous – no “--wait”)
+###############################################################################
+cluster-generic-submit-cmd: >-
+  sbatch
+  --parsable
+  --account={resources.account}
+  --partition={resources.partition}
+  --cpus-per-task={threads}
+  --mem={resources.mem_mb}
+  --time={resources.time}
+  --job-name=smk_{rule}
+  --output={log}
+
+###############################################################################
+# Status command -- see file profiles/slurm/status_squeue_sacct.sh
+# the behavior of this file is:
+# 1. Look for the job in squeue  ➜  running
+# 2. If it has vanished, ask sacct
+#       *  COMPLETED        ➜ success
+#       *  CANCELLED/FAILED etc. ➜ failed
+#       *  anything else (e.g. batch still settling) ➜ running
+###############################################################################
+cluster-generic-status-cmd: profiles/slurm/status_squeue_sacct.sh
+
+###############################################################################
+# Cancel command (Snakemake appends a space-separated list of job-ids)
+###############################################################################
+cluster-generic-cancel-cmd: scancel
+cluster-generic-cancel-nargs: 20      # cancel up to 20 at once
+
+###############################################################################
+# Default resources
+###############################################################################
+default-resources:
+  - account="sens2017557"
+  - partition="core"
+  - time="01:00:00"
+  - mem_mb=8000
+  - threads=1
+
+###############################################################################
+# Poll / scheduling knobs
+###############################################################################
+latency-wait: 180                   # wait for files to appear on the FS
+max-jobs-per-second: 10
+max-status-checks-per-second: 10
+keep-going: True                    # keep the DAG running after non-fatal errors
+
+###############################################################################
+# Misc
+###############################################################################
+use-conda: false
+use-singularity: false
+printshellcmds: True
+scheduler: greedy
+
+

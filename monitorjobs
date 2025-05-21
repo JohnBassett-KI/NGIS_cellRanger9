@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Default to current user
+USER_NAME=$USER
+
+# Parse command line arguments
+while getopts "u:h" opt; do
+    case $opt in
+        u)
+            USER_NAME="$OPTARG"
+            ;;
+        h)
+            echo "Usage: $0 [-u username] [-h]"
+            echo "  -u: Specify username (default: current user)"
+            echo "  -h: Show this help message"
+            exit 0
+            ;;
+        \?)
+            echo "Invalid option: -$OPTARG" >&2
+            exit 1
+            ;;
+    esac
+done
+
+echo "Monitoring jobs for user: $USER_NAME"
+echo "Press Ctrl+C to exit"
+echo
+
+watch -d -n 5 "sacct -u $USER_NAME --format=JobID,JobName,State,Elapsed,ExitCode -S today"

@@ -1,0 +1,26 @@
+# Snakemake temporary files
+.snakemake/
+logs/
+benchmarks/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.env
+.venv
+
+# OS specific
+.DS_Store
+
+# Container files
+*.sif
+*.tar.gz
+
+# Deprecated files
+cellRanger_pipe/deprecated

@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Default values
+CONFIG="config.yaml"
+PROFILE="profiles/slurm"
+JOBS=10
+LOCAL_CORES=2
+
+usage() {
+  cat <<EOF
+Usage: $0 [-c <config_file>] [-j|--jobs <num>] [-n|--local-cores <num>] [--dry-run] [--help]
+
+  -c <config_file>       Path to your project config.yaml (default: config.yaml)
+  -j, --jobs <num>       Number of parallel jobs to run (default: 1)
+  -n, --local-cores <num> Number of cores to use locally (default: 2)
+  --dry-run              Passes -n to Snakemake for a dry run
+  --help                 Show this help message
+EOF
+}
+
+# Parse options
+DRYRUN=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -c)
+      CONFIG="$2"
+      shift 2
+      ;;
+    -j|--jobs)
+      JOBS="$2"
+      shift 2
+      ;;
+    -n|--local-cores)
+      LOCAL_CORES="$2"
+      shift 2
+      ;;
+    --dry-run|-d)
+      DRYRUN="-n"
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+# Load modules (adjust as needed)
+module load bioinfo-tools
+module load snakemake/8.20.1
+
+# Run Snakemake with hard-coded profile
+snakemake \
+  --configfile "$CONFIG" \
+  --profile "$PROFILE" \
+  --jobs "$JOBS" \
+  --local-cores "$LOCAL_CORES" \
+  --cores 16 \
+  --rerun-incomplete \
+  --rerun-triggers mtime \
+  --verbose \
+  $DRYRUN
+

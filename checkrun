@@ -1,0 +1,16 @@
+#!/bin/bash
+#
+# checkrun is a bash wrapper for the file _preflight_chekks.py 
+# This script loads the required Python module before running the preflight checks
+
+# Load Python module - required for the environment
+module load python
+
+# Run the Python script (note this is for _preflight_checks2.py in the main directory)
+python _preflight_checks.py
+
+# Capture the exit code from the Python script
+EXIT_CODE=$?
+
+# Return the same exit code
+exit $EXIT_CODE

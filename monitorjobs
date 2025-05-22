@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# filepath: /Users/john.bassett/Documents/Software/NGIS_cellRanger9/monitorjobs
 
 set -euo pipefail
 
@@ -24,8 +25,37 @@ while getopts "u:h" opt; do
     esac
 done
 
+# Function to display current job status
+display_jobs() {
+    clear
+    echo "Monitoring jobs for user: $USER_NAME (Press 'q' to exit)"
+    echo "Last updated: $(date)"
+    echo
+    sacct -u "$USER_NAME" --format=JobID,JobName,State,Elapsed,ExitCode -S today
+}
+
 echo "Monitoring jobs for user: $USER_NAME"
-echo "Press Ctrl+C to exit"
+echo "Press 'q' to exit"
 echo
 
-watch -d -n 5 "sacct -u $USER_NAME --format=JobID,JobName,State,Elapsed,ExitCode -S today"
+# Enable non-blocking input
+stty -echo
+stty cbreak
+
+# Setup trap to restore terminal settings on exit
+trap "stty echo; stty -cbreak; echo; exit" EXIT
+
+# Main monitoring loop
+while true; do
+    display_jobs
+    
+    # Wait for 5 seconds, checking for 'q' key every 0.1 seconds
+    for i in {1..50}; do
+        read -t 0.1 -n 1 input || true
+        if [[ "$input" == "q" ]]; then
+            echo
+            echo "Exiting job monitor"
+            exit 0
+        fi
+    done
+done

@@ -1,14 +1,19 @@
 import os
 import sys
 import datetime
+import json
 from _preprocess_sampleInfo import discover_sample_dirs
+from _preflight_checks import build_aggregate_info
 
 localrules: init
 
 # Load configuration
-NGIS_dirs   = config["input"]["NGIS_dirs"]
+NGIS_dirs = config["input"]["NGIS_dirs"]
 experiment = config["output"]["experiment"]
-outs_dir   = config["output"]["outs_dir"]
+outs_dir = config["output"]["outs_dir"]
+donors = config.get('cellranger_aggregate', {}).get('donors', [])
+origins = config.get('cellranger_aggregate', {}).get('origin', [])
+sample_overrides = config.get('sample_override', {})
 
 # Timestamp for logs in format: YYYY-MM-DD_HH:MM:SS
 timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
@@ -19,18 +24,76 @@ seqrun_list = list(NGIS_dirs.keys())
 # Preprocess sample_info files to get cleaned sample names
 # and map each sample back to its NGIS run directory
 sample_info_list = discover_sample_dirs(NGIS_dirs)
-samples         = [d["sample_id"] for d in sample_info_list]
-# Group samples by seqrun
+
+# Filter samples to only include those with all three library types
+complete_samples = [
+    sample for sample in sample_info_list 
+    if sample["ngis_gex_id"] and sample["ngis_vdj_id"] and sample["ngis_adt_id"]
+]
+
+# Print warning for incomplete samples
+incomplete_samples = [s for s in sample_info_list if s not in complete_samples]
+if incomplete_samples:
+    print("\n WARNING: The following samples are missing one or more library types:")
+    for s in incomplete_samples:
+        print(f"  - {s['sample_id']}: ", end="")
+        missing = []
+        if not s["ngis_gex_id"]: missing.append("GEX")
+        if not s["ngis_vdj_id"]: missing.append("VDJ")
+        if not s["ngis_adt_id"]: missing.append("ADT")
+        print(f"Missing {', '.join(missing)}")
+
+# Group complete samples by seqrun
 samples_by_seqrun = {}
-for d in sample_info_list:
+for d in complete_samples:
     seqrun = next((run for run, path in NGIS_dirs.items() if path == d["ngis_dir"]), None)
     if seqrun:
         samples_by_seqrun.setdefault(seqrun, []).append(d["sample_id"])
 
+# Create simple list of all samples
+samples = [d["sample_id"] for d in complete_samples]
+
+# Build aggregate information with donor/origin details
+aggregate_info = build_aggregate_info(
+    donors, origins, sample_overrides, outs_dir, experiment, samples_by_seqrun
+)
+
+# Create comprehensive JSON data
+json_data = {
+    "samples_by_seqrun": samples_by_seqrun,
+    "aggregate_info": aggregate_info,
+    "samples": {}
+}
+
+# Create sample-centric data structure
+for sample in sample_info_list:
+    sample_id = sample["sample_id"]
+    json_data["samples"][sample_id] = {
+        "ngis_dir": sample["ngis_dir"],
+        "ngis_gex_id": sample["ngis_gex_id"],
+        "ngis_vdj_id": sample["ngis_vdj_id"],
+        "ngis_adt_id": sample["ngis_adt_id"]
+    }
+
+# Add donor/origin information to samples that have it
+for sample_id, sample_outs, donor, origin in aggregate_info:
+    if sample_id in json_data["samples"]:
+        json_data["samples"][sample_id]["sample_outs"] = sample_outs
+        json_data["samples"][sample_id]["donor"] = donor
+        json_data["samples"][sample_id]["origin"] = origin
+
+# Write sample information to JSON file
+sample_info_json = f"{outs_dir}/{experiment}/sample_info.json"
+os.makedirs(os.path.dirname(sample_info_json), exist_ok=True)
+with open(sample_info_json, 'w') as f:
+    json.dump(json_data, f, indent=2)
+
+print(f"\nSample information saved to: {sample_info_json}")
+
 # predefine file structure (For readability)
 # Base directories
-exp_base         = f"{outs_dir}/{experiment}"
-logs_dir         = f"{exp_base}/logs"
+exp_base = f"{outs_dir}/{experiment}"
+logs_dir = f"{exp_base}/logs" 
 # cellRangerMulti directories
 multi_config_dir = f"{exp_base}/multi_config"
 cellranger_outs  = f"{exp_base}/cellranger_outs"
@@ -190,4 +253,5 @@ rule cellranger_multi:
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Run completed successfully" >> {log} 2>&1
         touch {output.flag}
         """
+
 

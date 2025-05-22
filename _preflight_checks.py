@@ -3,6 +3,7 @@ import os
 import sys
 import yaml
 import re
+import json
 
 # Import from parent directory
 from _preprocess_sampleInfo import discover_sample_dirs
@@ -176,3 +177,4 @@ def main():
 
 if __name__ == "__main__":
     result = main()
+

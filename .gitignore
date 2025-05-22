@@ -24,3 +24,7 @@ ENV/
 
 # Deprecated files
 cellRanger_pipe/deprecated
+example_files
+
+#Cellranger temporary files
+*.mro

@@ -50,8 +50,8 @@ for d in complete_samples:
     if seqrun:
         samples_by_seqrun.setdefault(seqrun, []).append(d["sample_id"])
 
-# Create simple list of all samples
-samples = [d["sample_id"] for d in complete_samples]
+# Create simple list of all samples (maybe useful for scaling other functions)
+# samples = [d["sample_id"] for d in complete_samples]
 
 # Build aggregate information with donor/origin details
 aggregate_info = build_aggregate_info(
@@ -65,6 +65,7 @@ json_data = {
     "samples": {}
 }
 
+##################Begin populate the empty "samples":{} in json_data ##################
 # Create sample-centric data structure
 for sample in sample_info_list:
     sample_id = sample["sample_id"]
@@ -78,7 +79,7 @@ for sample in sample_info_list:
 # Add donor/origin information to samples that have it
 for sample_id, sample_outs, donor, origin in aggregate_info:
     if sample_id in json_data["samples"]:
-        json_data["samples"][sample_id]["sample_outs"] = sample_outs
+        #json_data["samples"][sample_id]["sample_outs"] = sample_outs
         json_data["samples"][sample_id]["donor"] = donor
         json_data["samples"][sample_id]["origin"] = origin
 
@@ -87,6 +88,7 @@ sample_info_json = f"{outs_dir}/{experiment}/sample_info.json"
 os.makedirs(os.path.dirname(sample_info_json), exist_ok=True)
 with open(sample_info_json, 'w') as f:
     json.dump(json_data, f, indent=2)
+################## End populating the empty "samples":{} in json_data ##################
 
 print(f"\nSample information saved to: {sample_info_json}")
 
@@ -98,23 +100,39 @@ logs_dir = f"{exp_base}/logs"
 multi_config_dir = f"{exp_base}/multi_config"
 cellranger_outs  = f"{exp_base}/cellranger_outs"
 
-# Final target: one checksum per run, one multiconfig per sample, cellRanger outputs for each sample
+
+################Prepare Rule All Targets##################
+# Check if aggregation is enabled in config
+run_aggregate = config.get('cellranger_aggregate', {}).get('run', "no").lower() == "yes"
+
+# Define all rule inputs based on config
+all_inputs = [
+    # Checksums for each sequencing run
+    expand(f"{logs_dir}/{{seqrun}}/check_sums.done", seqrun=seqrun_list),
+    # Multiconfig files for each sample
+    [
+        f"{multi_config_dir}/{seqrun}/multi_config_{sample_id}.csv"
+        for seqrun, sample_ids in samples_by_seqrun.items()
+        for sample_id in sample_ids
+    ],
+    # Cellranger outputs for each sample
+    [
+        f"{logs_dir}/{seqrun}/cellranger_{sample_id}.done"
+        for seqrun, sample_ids in samples_by_seqrun.items()
+        for sample_id in sample_ids
+    ]
+]
+
+# Add aggregation CSV if enabled
+if run_aggregate:
+    all_inputs.append(f"{exp_base}/{experiment}_aggr.csv")
+    all_inputs.append(f"{logs_dir}/cellranger_aggregate.done")
+
+# Final target rule
 rule all:
-    input:
-        # Checksums for each sequencing run
-        expand(f"{logs_dir}/{{seqrun}}/check_sums.done", seqrun=seqrun_list),
-        # Multiconfig files for each sample
-        [
-            f"{multi_config_dir}/{seqrun}/multi_config_{sample_id}.csv"
-            for seqrun, sample_ids in samples_by_seqrun.items()
-            for sample_id in sample_ids
-        ],
-        # Cellranger outputs for each sample
-        [
-            f"{logs_dir}/{seqrun}/cellranger_{sample_id}.done"
-            for seqrun, sample_ids in samples_by_seqrun.items()
-            for sample_id in sample_ids
-        ]
+    input: all_inputs
+#####################End Rule all########################
+
 # Rule: init
 # Initializes the file structure
 # and touches a per-sequencing run initialization flag file in the logs folder.
@@ -254,4 +272,109 @@ rule cellranger_multi:
         touch {output.flag}
         """
 
+# Rule: gen_aggr_config
+# Generates a configuration file for the cellRanger aggregate command.
+# This rule depends on the cellranger_aggregate field of the config.yaml file.
+rule gen_aggr_config:
+    input:
+        sample_info = f"{exp_base}/sample_info.json",
+        # Require cellranger runs to be complete for all samples that will be aggregated
+        cellranger_complete = [
+            f"{logs_dir}/{seqrun}/cellranger_{sample_id}.done"
+            for seqrun, sample_ids in samples_by_seqrun.items()
+            for sample_id in sample_ids
+        ]
+    output:
+        aggr_csv = f"{exp_base}/{experiment}_aggr.csv"
+    log:
+        f"{logs_dir}/gen_aggr_config.log"
+    params:
+        script = "cellRanger_pipe/03genAggrCsv.py",
+        output_dir = exp_base
+    threads: 1
+    resources:
+        partition="core",  
+        time="00:20:00"
+    shell:
+        """
+        set -e  # Exit on error
+        
+        # Run the aggregation script
+        python3 {params.script} \
+            --json {input.sample_info} \
+            --output {experiment} \
+            --dir {params.output_dir} > {log} 2>&1
+        
+        # Check if the aggregation file was created
+        if [ ! -f "{output.aggr_csv}" ]; then
+            echo "Error: Failed to create aggregation CSV file" >> {log} 2>&1
+            exit 1
+        fi
+        
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Aggregation CSV file created successfully: {output.aggr_csv}" >> {log} 2>&1
+        """
+
+# Rule: cellRanger_aggregate
+# Runs cellRanger aggregate using the generated configuration file from gen_aggr_config.
+rule cellRanger_aggregate:
+    input:
+        aggr_csv = f"{exp_base}/{experiment}_aggr.csv",
+        container = os.path.abspath("cellRanger_apptainer/cellRanger_v9.0.1.sif")
+    output:
+        flag = f"{logs_dir}/cellranger_aggregate.done"
+    log:
+        f"{logs_dir}/cellranger_aggregate.log"
+    params:
+        outdir = f"{exp_base}/cellranger_outs/{experiment}_aggr",
+        aggr_run_id = experiment,
+        status_cellranger = "cellRanger_pipe/_check_cellranger_status.py", # Reuse cellranger status check script
+        gb_divisor = 1024  # Cellranger's definition of GB
+    threads: 16
+    resources:
+        partition="node",
+        time="48:00:00",
+        mem_mb=109300  # Memory Ceiling for Bianca Node is 117000 MB, Max available for Cellranger=109465
+    shell:
+        """
+        set -e  # Exit on error
+
+        # Check if completed output exists already
+        if [ -d "{params.outdir}/outs/" ]; then
+            echo "Detected existing Cell Ranger aggregate output in {params.outdir}. Skipping." >> {log} 2>&1
+            touch {output.flag}
+            exit 0
+        fi
+
+        # Print debug info to log
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting cellranger aggregate run" >> {log} 2>&1
+        echo "Aggregate ID: {params.aggr_run_id}" >> {log} 2>&1
+        echo "CSV file: {input.aggr_csv}" >> {log} 2>&1
+        echo "Output directory: {params.outdir}" >> {log} 2>&1
+        echo "Container: {input.container}" >> {log} 2>&1
+        echo "Threads: {threads}" >> {log} 2>&1
+        echo "Memory: {resources.mem_mb} MB" >> {log} 2>&1
+        echo "---------------------------------" >> {log} 2>&1
+
+        # Run cellranger aggregate
+        apptainer exec {input.container} cellranger aggr \\
+            --id={params.aggr_run_id} \\
+            --csv={input.aggr_csv} \\
+            --output-dir={params.outdir} \\
+            --localcores={threads} \\
+            --localmem=$(({resources.mem_mb}/{params.gb_divisor})) 2>&1 | tee -a {log}
+            
+        # Check if cell ranger completed successfully
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Checking Cell Ranger completion status..." >> {log} 2>&1
+        python3 {params.status_cellranger} "{params.outdir}" >> {log} 2>&1
+        exit_code=$?
+
+        if [ $exit_code -ne 0 ]; then
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Cell Ranger aggregate run failed with exit code $exit_code" >> {log} 2>&1
+            exit 1
+        fi
+
+        # Create our flag file to mark successful completion
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Aggregate run completed successfully" >> {log} 2>&1
+        touch {output.flag}
+        """
 

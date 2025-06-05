@@ -1,14 +1,4 @@
-01gen_multi_config. During the write state program should fail if no GEX ADT or VDJ libraries are found. An output message should be written to the logs which says which ones failed.
-
-The _preprocess file needs to have a more readable output. 
-
-Change preprocess file to identify the library type anywhere in the name not just the last 3 chars. It should make sure they are identified and tell the user if they are there. catch if they are not there.
-
-fix the mv of the cellranger output so that it mvs tmp files properly.
-
 In the slurm profile config file, the account is hardcoded. This should be adjustable viathe master config file.
 
-Add Donors section to the config file. The _preflightChecks.py should be altered not to accept the aggregate parameter but to parse the donor information. The Donor information includes the runs_to_aggregate parameter so having both is redundant.
-A function should be writtent to iterate through all the sample_ids and collect the relevant information for writing to a csv.
+Before running anything the pipeline should check to make sure that all the reference files in the config.yaml exist.
 
-write the config file to the logs during init.

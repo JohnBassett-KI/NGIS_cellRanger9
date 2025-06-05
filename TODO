@@ -2,3 +2,4 @@ In the slurm profile config file, the account is hardcoded. This should be adjus
 
 Before running anything the pipeline should check to make sure that all the reference files in the config.yaml exist.
 
+01genMultiConfig.sh cannot handle lane information currently. It will need to be rewritten in python to do so. 

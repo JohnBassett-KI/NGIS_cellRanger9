@@ -208,10 +208,21 @@ for experiment in "${!gex_ids[@]}"; do
     echo "[libraries]"
     if [[ "$lane_option" == "ALL" ]]; then
         echo "fastq_id,fastqs,feature_types"
-        echo "$gex_id,$gex_dir,Gene Expression"
-        echo "$vdj_id,$vdj_dir,VDJ-T"
-        echo "$adt_id,$adt_dir,Antibody Capture"
-    else
+    
+        # Split gex_dir by newlines and write a line for each directory
+        while IFS= read -r single_gex_dir; do
+            echo "$gex_id,$single_gex_dir,Gene Expression"
+        done <<< "$gex_dir"
+    
+        # Do the same for VDJ and ADT
+        while IFS= read -r single_vdj_dir; do
+            echo "$vdj_id,$single_vdj_dir,VDJ-T"
+        done <<< "$vdj_dir"
+        
+        while IFS= read -r single_adt_dir; do
+            echo "$adt_id,$single_adt_dir,Antibody Capture"
+        done <<< "$adt_dir"
+    else # Will fail if multiple directories are found. rewrite in python.
         echo "fastq_id,fastqs,lanes,feature_types"
         echo "$gex_id,$gex_dir,$gex_lanes,Gene Expression"
         echo "$vdj_id,$vdj_dir,$vdj_lanes,VDJ-T"
@@ -221,3 +232,4 @@ for experiment in "${!gex_ids[@]}"; do
     echo "CSV file '$output_file' created successfully."
     echo
 done
+

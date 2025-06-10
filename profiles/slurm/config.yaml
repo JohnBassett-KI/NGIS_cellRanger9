@@ -47,7 +47,7 @@ default-resources:
 # Poll / scheduling knobs
 ###############################################################################
 latency-wait: 180                   # wait for files to appear on the FS
-max-jobs-per-second: 10
+max-jobs-per-second: 4
 max-status-checks-per-second: 10
 keep-going: True                    # keep the DAG running after non-fatal errors
 

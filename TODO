@@ -3,3 +3,7 @@ In the slurm profile config file, the account is hardcoded. This should be adjus
 Before running anything the pipeline should check to make sure that all the reference files in the config.yaml exist.
 
 01genMultiConfig.sh cannot handle lane information currently. It will need to be rewritten in python to do so. 
+
+Strip trailing slashes from config file directories as they are read into snake make 
+	examlpe:outs_dir = config["outs_dir"].rstrip("/")
+	This will prevent issues downstream of users not knowing how to enter directories.

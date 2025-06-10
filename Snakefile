@@ -164,7 +164,7 @@ rule check_sums:
     threads: 8
     resources:
         partition="core",
-        time="00:30:00",
+        time="01:00:00",
     shell:
         """
         # Run checksum script and create flag only on success
@@ -221,7 +221,7 @@ rule cellranger_multi:
     threads: 16
     resources:
         partition="node",
-        time="48:00:00",
+        time="72:00:00",
         mem_mb=109300 # Memory Ceiling for Bianca Node is 117000 MB, Max available for Cellranger=109465
     shell:
         """

@@ -295,10 +295,13 @@ rule cellranger_multi:
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Running Cell Ranger with local storage..." >> {log} 2>&1
         
         # Prepare environment variables for the container
+        # (Set both APPTAINERENV_MRO_TMPDIR and MRO_TMPDIR for robustness)
         export APPTAINERENV_MRO_TMPDIR=/data/mro
+        export MRO_TMPDIR=/data/mro
         
         # Run with all local storage paths mapped 
         apptainer exec \
+            --env MRO_TMPDIR=/data/mro \
             --bind "$LOCAL_REFS:/data/references" \
             --bind "$LOCAL_FASTQS:/data/fastqs" \
             --bind "$LOCAL_OUT:/data/output" \

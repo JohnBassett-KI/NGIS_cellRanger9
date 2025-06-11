@@ -37,7 +37,7 @@ cluster-generic-cancel-nargs: 20      # cancel up to 20 at once
 # Default resources
 ###############################################################################
 default-resources:
-  - account="sens2017557"
+  - account="YOUR_ACCOUNT"         # replace with your SLURM account (ex. "sens123456")
   - partition="core"
   - time="01:00:00"
   - mem_mb=8000
@@ -47,7 +47,9 @@ default-resources:
 # Poll / scheduling knobs
 ###############################################################################
 latency-wait: 180                   # wait for files to appear on the FS
-max-jobs-per-second: 6
+# max-jobs-per-second has an edge case behavior:
+# This pipeline will submit 10 jobs at once and wait for them to finish before submitting more.
+max-jobs-per-second: 10 #edge case behavior!
 max-status-checks-per-second: 10
 keep-going: True                    # keep the DAG running after non-fatal errors
 

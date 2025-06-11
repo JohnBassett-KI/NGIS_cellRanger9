@@ -1,4 +1,4 @@
-In the slurm profile config file, the account is hardcoded. This should be adjustable viathe master config file.
+In the slurm profile config file, the account is hardcoded. This should be adjustable via the master config file.
 
 Before running anything the pipeline should check to make sure that all the reference files in the config.yaml exist.
 
@@ -7,3 +7,9 @@ Before running anything the pipeline should check to make sure that all the refe
 Strip trailing slashes from config file directories as they are read into snake make 
 	examlpe:outs_dir = config["outs_dir"].rstrip("/")
 	This will prevent issues downstream of users not knowing how to enter directories.
+
+Changes to cellranger env variables have been made to make sure that .mro files are written and read from local node storage, but have not been tested
+
+Json creation should be performed inside of its own rule.
+
+Rules should be modularized into seperate files instead of in a single snake file.

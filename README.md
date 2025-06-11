@@ -16,8 +16,9 @@ This workflow automates Cell Ranger runs for sequencing data delivered by SciLif
 - Automates generation of Cell Ranger aggregate config file
 - Runs Cell Ranger aggregate on desired sample runs
 
-[![Snakemake rule DAG](Snakemake_rule_dag.png)]
-
+<div align="center">
+  <img src="Snakemake_rule_dag.png" alt="Snakemake rule DAG" width="200" height="300"/>
+</div>
 ---
 
 ## Getting Started

@@ -1,0 +1,71 @@
+##################################################################
+# INPUTS
+#
+# NGIS_dirs: locations of NGIS project folder
+#       Format: SequencingRunName: "/path/to/sequencing/data"
+#       Example: Project_Mouse123: "/path/to/user/example_study/files/P12345"
+#
+# refs:
+#       gex_ref: location of reference genome
+#       vdj_ref: location of vdj reference sequences
+#       feat_ref: location of feature reference sequences
+#
+# lanes: flowcell lanes to be processed.
+#       Leave as "ALL" 
+#       This parameter is included for scalability, but is not yet implemented.
+#       The default ALL assumes that all fastq files in a library folder should be used
+#       and agrees with the format NGIS data is delivered in.
+#
+##################################################################
+# CELLRANGER AGGREGATE
+#
+# run: "yes"/"no" - Whether to perform aggregation
+# donors: List of donor identifiers to look for in sample names
+#       These are used to group samples for donor-specific analyses
+#
+# origin: List of origin identifiers to look for in sample names
+#       These could represent timepoints, tissues, or experimental conditions
+#       Example origins: ["baseline", "treated", "control"]
+#
+##################################################################
+# SAMPLE OVERRIDE
+#
+# This section lets you manually specify donor and origin information
+# for samples that don't follow the standard naming convention.
+# 
+# Format:
+#   sample_name:
+#     donor: donor_id
+#     origin: origin_id
+#
+# If no overrides are needed, set to "NA"
+#
+##################################################################
+# OUTPUTS
+#
+# experiment: Name of the experiment; this will be used to name the output folders
+# outs_dir: Location where the experiment data should be generated
+##################################################################
+input:
+        NGIS_dirs:
+                Sequencing_project_name_name123: "/path/to/user/example_study/files/P12345"
+                Project_Mouse456: "/path/to/user/example_study2/files/P67890"
+        refs:
+                gex_ref:  '/data/references/refdata-gex-mm10-2020-A'
+                vdj_ref:  '/data/references/refdata-cellranger-vdj-mm10-5.0.0'
+                feat_ref: '/path/to/feature_ref.csv'
+        lanes: 'ALL'
+cellranger_aggregate:
+        run: "yes"
+        donors: ["Mouse123", "Mouse456", "Mouse789"]
+        origin: ["baseline", "treated"]
+output:
+        experiment: "MouseStudy2023"
+        outs_dir: "/path/to/user/CellRanger_Outs"
+sample_override:
+        Sample_Oddname_XYZ:
+                donor: Mouse123
+                origin: treated
+        AnotherUnusualSampleID:
+                donor: Mouse456
+                origin: baseline

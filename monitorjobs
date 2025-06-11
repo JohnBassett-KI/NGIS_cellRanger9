@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# filepath: /Users/john.bassett/Documents/Software/NGIS_cellRanger9/monitorjobs
 
 set -euo pipefail
 

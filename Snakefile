@@ -203,8 +203,9 @@ rule gen_multi_config:
 # Rule: cellRanger_multi
 # Runs cellRanger using the generated configuration file from gen_multi_config.
 #       NOTE: Snakemake automatically creates output directory if it does not exist. Cell ranger will not
-#       output to a specified directory if it already exists. Cell ranger outputs are therefore 
-#       generated in a tmp dir and moved to their file location.
+#       output to a specified directory if it already exists.
+# Uses node-local storage to avoid Lustre filesystem contention. Solves the issue of automatically created
+#       directories by snakemake.
 rule cellranger_multi:
     input:
         config_file = f"{multi_config_dir}/{{seqrun}}/multi_config_{{sample_id}}.csv",
@@ -214,48 +215,113 @@ rule cellranger_multi:
     log:
         f"{logs_dir}/{{seqrun}}/cellranger_{{sample_id}}.log"
     params:
-        outdir      = f"{exp_base}/cellranger_outs/{{seqrun}}/{{sample_id}}",
-        out_tmp_dir = f"{exp_base}/cellranger_outs/{{seqrun}}/{{sample_id}}_tmp",
-        status_cellranger = "cellRanger_pipe/_check_cellranger_status.py", #script to check cellRanger completion status
+        outdir = f"{exp_base}/cellranger_outs/{{seqrun}}/{{sample_id}}",
+        status_cellranger = "cellRanger_pipe/_check_cellranger_status.py",
         gb_divisor = 1024,  # Cellranger's definition of GB
+        get_paths = "cellRanger_pipe/extract_paths_from_config.py"
     threads: 16
     resources:
         partition="node",
         time="72:00:00",
-        mem_mb=109300 # Memory Ceiling for Bianca Node is 117000 MB, Max available for Cellranger=109465
+        mem_mb=109300
     shell:
         """
         set -e  # Exit on error
-
+        
         # Check if completed output exists already
         if [ -d "{params.outdir}/outs/" ]; then
             echo "Detected existing Cell Ranger output in {params.outdir}. Skipping." >> {log} 2>&1
+            touch {output.flag}
             exit 0
-        fi  
+        fi
 
-        # Print debug info to log
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting cellranger multi run" >> {log} 2>&1
-        echo "Sample ID: {wildcards.sample_id}" >> {log} 2>&1
-        echo "Config file: {input.config_file}" >> {log} 2>&1
-        echo "Output directory: {params.outdir}" >> {log} 2>&1
-        echo "Container: {input.container}" >> {log} 2>&1
-        echo "Threads: {threads}" >> {log} 2>&1
-        echo "Memory: {resources.mem_mb} MB" >> {log} 2>&1
-        echo "---------------------------------" >> {log} 2>&1        
-
-	# Create parent of output directory if it doesn't exist
-        mkdir -p "$(dirname {params.out_tmp_dir})"
-
-        # Run cellranger multi
-        apptainer exec {input.container} cellranger multi \
-            --id={wildcards.sample_id} \
-            --csv={input.config_file} \
-            --output-dir={params.out_tmp_dir} \
-            --localcores={threads} \
-            --localmem=$(({resources.mem_mb}/{params.gb_divisor})) 2>&1 | tee -a {log}
-
-        # Move to final location
-        mv {params.out_tmp_dir} {params.outdir}
+        # Set up local directories
+        LOCAL_BASE="$TMPDIR/cellranger_{wildcards.sample_id}"
+        LOCAL_OUT="$LOCAL_BASE/output"
+        LOCAL_REFS="$LOCAL_BASE/references"
+        LOCAL_FASTQS="$LOCAL_BASE/fastqs"
+        LOCAL_CONFIG="$LOCAL_BASE/config.csv"
+        LOCAL_TEMP="$LOCAL_BASE/temp"
+        LOCAL_MRO="$LOCAL_BASE/mro"
+        
+        mkdir -p "$LOCAL_OUT" "$LOCAL_REFS" "$LOCAL_FASTQS" "$LOCAL_TEMP" "$LOCAL_MRO"
+        
+        # Extract reference and FASTQ paths from config
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Extracting paths from config file..." >> {log} 2>&1
+        python3 {params.get_paths} {input.config_file} > "$TMPDIR/paths.txt"
+        
+        GEX_REF=$(grep "^gex_ref:" "$TMPDIR/paths.txt" | cut -d':' -f2)
+        VDJ_REF=$(grep "^vdj_ref:" "$TMPDIR/paths.txt" | cut -d':' -f2)
+        FEAT_REF=$(grep "^feat_ref:" "$TMPDIR/paths.txt" | cut -d':' -f2)
+        
+        # Copy references to local storage
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Copying references to local storage..." >> {log} 2>&1
+        mkdir -p "$LOCAL_REFS/gex" "$LOCAL_REFS/vdj" "$LOCAL_REFS/feature"
+        rsync -a "$GEX_REF/" "$LOCAL_REFS/gex/" >> {log} 2>&1
+        rsync -a "$VDJ_REF/" "$LOCAL_REFS/vdj/" >> {log} 2>&1
+        cp "$FEAT_REF" "$LOCAL_REFS/feature/feature_ref.csv" >> {log} 2>&1
+        
+        # Extract and copy FASTQ directories
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Copying FASTQ files to local storage..." >> {log} 2>&1
+        while IFS= read -r line; do
+            if [[ $line == fastq_dir:* ]]; then
+                FASTQ_DIR=$(echo "$line" | cut -d':' -f2)
+                FASTQ_DEST="$LOCAL_FASTQS/$(basename "$FASTQ_DIR")"
+                mkdir -p "$FASTQ_DEST"
+                rsync -a "$FASTQ_DIR/" "$FASTQ_DEST/" >> {log} 2>&1
+            fi
+        done < "$TMPDIR/paths.txt"
+        
+        # Create a modified config file with local paths
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Creating modified config with local paths..." >> {log} 2>&1
+        sed -e "s|$GEX_REF|/data/references/gex|g" \
+            -e "s|$VDJ_REF|/data/references/vdj|g" \
+            -e "s|$FEAT_REF|/data/references/feature/feature_ref.csv|g" {input.config_file} > "$LOCAL_CONFIG"
+            
+        # Update FASTQ paths in config (with container paths)
+        while IFS= read -r line; do
+            if [[ $line == fastq_dir:* ]]; then
+                FASTQ_DIR=$(echo "$line" | cut -d':' -f2)
+                FASTQ_NAME=$(basename "$FASTQ_DIR")
+                sed -i "s|$FASTQ_DIR|/data/fastqs/$FASTQ_NAME|g" "$LOCAL_CONFIG"
+            fi
+        done < "$TMPDIR/paths.txt"
+        
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Modified config created with container paths:" >> {log} 2>&1
+        cat "$LOCAL_CONFIG" >> {log} 2>&1
+        
+        # Run cellranger multi with bind mounts for local storage
+        # Important: Use MRO_TMPDIR environment variable for Martian Runtime files
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Running Cell Ranger with local storage..." >> {log} 2>&1
+        
+        # Prepare environment variables for the container
+        export APPTAINERENV_MRO_TMPDIR=/data/mro
+        
+        # Run with all local storage paths mapped 
+        apptainer exec \
+            --bind "$LOCAL_REFS:/data/references" \
+            --bind "$LOCAL_FASTQS:/data/fastqs" \
+            --bind "$LOCAL_OUT:/data/output" \
+            --bind "$LOCAL_TEMP:/data/temp" \
+            --bind "$LOCAL_MRO:/data/mro" \
+            {input.container} \
+            cellranger multi \
+                --id={wildcards.sample_id} \
+                --csv="$LOCAL_CONFIG" \
+                --output-dir=/data/output \
+                --localcores={threads} \
+                --localmem=$(({resources.mem_mb}/{params.gb_divisor})) 2>&1 | tee -a {log}
+        
+        # Check for errors before copying results back
+        if [ $? -ne 0 ]; then
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Cell Ranger run failed" >> {log} 2>&1
+            exit 1
+        fi
+        
+        # Copy results back to shared storage
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Copying results back to shared storage..." >> {log} 2>&1
+        mkdir -p "$(dirname {params.outdir})"
+        rsync -a "$LOCAL_OUT/" "{params.outdir}/" >> {log} 2>&1
         
         # Check if cell ranger completed successfully
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Checking Cell Ranger completion status..." >> {log} 2>&1
